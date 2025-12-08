@@ -4,9 +4,9 @@ Repositório com código e scripts da série de artigos sobre Firecracker no blo
 
 ## Artigos
 
-1. **[Firecracker: A tecnologia por trás do AWS Lambda que você pode rodar no seu Linux](https://fogonacaixadagua.com.br/)** - Introdução ao Firecracker e Hello World com microVMs
+1. **[Firecracker: A tecnologia por trás do AWS Lambda que você pode rodar no seu Linux](https://fogonacaixadagua.com.br/2025/12/firecracker-a-tecnologia-por-tras-do-aws-lambda-que-voce-pode-rodar-no-seu-linux/)** - Introdução ao Firecracker e Hello World com microVMs
 
-2. **[Construindo um nano-Lambda: como serverless funciona por dentro](https://fogonacaixadagua.com.br/)** - Implementação de um Lambda caseiro usando Firecracker
+2. **[Construindo um nano-Lambda: como serverless funciona por dentro](https://fogonacaixadagua.com.br/2025/12/construindo-um-nano-lambda-como-serverless-funciona-por-dentro/)** - Implementação de um Lambda caseiro usando Firecracker
 
 ## Estrutura
 
