@@ -1,0 +1,6 @@
+# Dependencias para o nano-lambda-network.py (host)
+requests-unixsocket>=0.3.0
+
+# Dependencias para o handler.py (dentro da VM)
+# Nota: estas sao instaladas no rootfs via build-rootfs-network.sh
+# requests>=2.28.0

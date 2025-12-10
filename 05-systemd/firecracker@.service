@@ -1,0 +1,51 @@
+[Unit]
+Description=Firecracker MicroVM (%i)
+Documentation=https://github.com/firecracker-microvm/firecracker
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+
+# %i e substituido pelo nome da instancia
+# Exemplo: firecracker@web.service -> %i = web
+Environment=VM_NAME=%i
+Environment=SOCKET_PATH=/run/firecracker/%i.socket
+Environment=KERNEL_PATH=/var/lib/firecracker/vmlinux.bin
+Environment=ROOTFS_PATH=/var/lib/firecracker/rootfs-%i.ext4
+
+# Carrega configuracoes especificas da VM (se existir)
+# Arquivo: /etc/firecracker/<nome>.conf
+# Formato: VAR=valor (uma por linha)
+EnvironmentFile=-/etc/firecracker/%i.conf
+
+# Cria diretorio em /run para o socket
+RuntimeDirectory=firecracker
+RuntimeDirectoryMode=0755
+
+# Antes de iniciar: configura rede
+ExecStartPre=/usr/local/bin/firecracker-network-setup.sh up
+
+# Comando principal
+ExecStart=/usr/local/bin/firecracker-vm-start.sh
+
+# Depois de parar: limpa rede
+ExecStopPost=/usr/local/bin/firecracker-network-setup.sh down
+
+# Politica de restart
+Restart=on-failure
+RestartSec=5
+StartLimitBurst=3
+StartLimitIntervalSec=60
+
+# Timeout
+TimeoutStartSec=30
+TimeoutStopSec=10
+
+# Logs (usa nome da instancia como identificador)
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=firecracker-%i
+
+[Install]
+WantedBy=multi-user.target

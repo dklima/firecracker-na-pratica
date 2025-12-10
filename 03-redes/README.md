@@ -1,6 +1,6 @@
 # Artigo 03: Redes no Firecracker
 
-Scripts e codigo do artigo **"Redes no Firecracker: Configurando TAP, NAT e Internet para seu Nano-Lambda"**.
+Scripts e codigo do artigo **[Redes no Firecracker: configurando TAP, NAT e internet para seu nano-Lambda](https://fogonacaixadagua.com.br/2025/12/redes-no-firecracker-configurando-tap-nat-e-internet-para-seu-nano-lambda/)**.
 
 ## Arquivos
 

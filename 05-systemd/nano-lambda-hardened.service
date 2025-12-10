@@ -1,0 +1,92 @@
+[Unit]
+Description=Nano-Lambda MicroVM (Firecracker) - Hardened
+Documentation=https://github.com/firecracker-microvm/firecracker
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+
+# Variaveis de ambiente para os scripts
+Environment=VM_NAME=nano-lambda
+Environment=SOCKET_PATH=/run/firecracker/nano-lambda.socket
+Environment=KERNEL_PATH=/var/lib/firecracker/vmlinux.bin
+Environment=ROOTFS_PATH=/var/lib/firecracker/rootfs-network.ext4
+Environment=VCPU_COUNT=1
+Environment=MEM_SIZE_MIB=256
+Environment=TAP_DEV=tap0
+Environment=TAP_IP=172.16.0.1
+Environment=GUEST_MAC=AA:FC:00:00:00:01
+
+# Cria diretorio em /run para o socket
+RuntimeDirectory=firecracker
+RuntimeDirectoryMode=0755
+
+# Antes de iniciar: configura rede
+ExecStartPre=/usr/local/bin/firecracker-network-setup.sh up
+
+# Comando principal
+ExecStart=/usr/local/bin/firecracker-vm-start.sh
+
+# Depois de parar: limpa rede
+ExecStopPost=/usr/local/bin/firecracker-network-setup.sh down
+
+# Politica de restart
+Restart=on-failure
+RestartSec=5
+StartLimitBurst=3
+StartLimitIntervalSec=60
+
+# Timeout
+TimeoutStartSec=30
+TimeoutStopSec=10
+
+# Logs
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=nano-lambda
+
+# ============================================
+# HARDENING - Isolamento e seguranca
+# ============================================
+
+# Isolamento de filesystem
+# O sistema de arquivos do host fica read-only, exceto onde explicitamente permitido
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+
+# Diretorios onde o Firecracker pode escrever
+ReadWritePaths=/var/lib/firecracker /run/firecracker
+
+# Restricoes de processo
+# Previne escalacao de privilegios via setuid/setgid
+NoNewPrivileges=yes
+
+# Isola acesso a dispositivos - so permite os necessarios
+PrivateDevices=yes
+DeviceAllow=/dev/kvm rw
+DeviceAllow=/dev/net/tun rw
+
+# Capabilities minimas
+# CAP_NET_ADMIN: necessario para criar e configurar interface TAP
+# CAP_NET_RAW: necessario para algumas operacoes de rede
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW
+
+# Limites de recursos
+# Previne que a VM consuma todos os recursos do host
+MemoryMax=512M
+TasksMax=10
+
+# Protecoes adicionais do kernel
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+
+# Restricao de chamadas de sistema (opcional, pode causar problemas)
+# SystemCallFilter=@system-service
+
+[Install]
+WantedBy=multi-user.target

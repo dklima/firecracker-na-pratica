@@ -1,0 +1,6 @@
+# Dependencias para o nano-lambda.py (host)
+requests-unixsocket>=0.3.0
+
+# Dependencias para o handler.py (dentro da VM)
+# Nota: estas sao instaladas no rootfs via build-rootfs.sh
+# qrcode[pil]>=7.0

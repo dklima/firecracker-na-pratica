@@ -1,0 +1,50 @@
+[Unit]
+Description=Nano-Lambda MicroVM (Firecracker)
+Documentation=https://github.com/firecracker-microvm/firecracker
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+
+# Variaveis de ambiente para os scripts
+Environment=VM_NAME=nano-lambda
+Environment=SOCKET_PATH=/run/firecracker/nano-lambda.socket
+Environment=KERNEL_PATH=/var/lib/firecracker/vmlinux.bin
+Environment=ROOTFS_PATH=/var/lib/firecracker/rootfs-network.ext4
+Environment=VCPU_COUNT=1
+Environment=MEM_SIZE_MIB=256
+Environment=TAP_DEV=tap0
+Environment=TAP_IP=172.16.0.1
+Environment=GUEST_MAC=AA:FC:00:00:00:01
+
+# Cria diretorio em /run para o socket
+RuntimeDirectory=firecracker
+RuntimeDirectoryMode=0755
+
+# Antes de iniciar: configura rede
+ExecStartPre=/usr/local/bin/firecracker-network-setup.sh up
+
+# Comando principal
+ExecStart=/usr/local/bin/firecracker-vm-start.sh
+
+# Depois de parar: limpa rede
+ExecStopPost=/usr/local/bin/firecracker-network-setup.sh down
+
+# Politica de restart
+Restart=on-failure
+RestartSec=5
+StartLimitBurst=3
+StartLimitIntervalSec=60
+
+# Timeout
+TimeoutStartSec=30
+TimeoutStopSec=10
+
+# Logs
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=nano-lambda
+
+[Install]
+WantedBy=multi-user.target
