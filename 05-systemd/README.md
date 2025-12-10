@@ -1,5 +1,7 @@
 # Daemonizando MicroVMs com systemd
 
+Arquivos para o artigo **[Firecracker em produção: systemd, restart automático e a diferença entre demo e serviço de verdade](https://fogonacaixadagua.com.br/2025/12/firecracker-em-producao-systemd-restart-automatico-e-a-diferenca-entre-demo-e-servico-de-verdade/)**
+
 Scripts e unit files para rodar microVMs Firecracker como servicos systemd.
 
 ## Arquivos

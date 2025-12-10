@@ -12,7 +12,7 @@ Repositório com código e scripts da série de artigos sobre Firecracker no blo
 
 4. **[Snapshots no Firecracker: de 7 segundos para 240ms](https://fogonacaixadagua.com.br/2025/12/snapshots-no-firecracker-de-7-segundos-para-240ms/)** - Otimização de cold start com snapshots (~25x mais rápido)
 
-5. **Firecracker em produção: systemd, restart automático e a diferença entre demo e serviço de verdade** - Transformando microVMs em serviços de produção com restart automático, logs centralizados e hardening
+5. **[Firecracker em produção: systemd, restart automático e a diferença entre demo e serviço de verdade](https://fogonacaixadagua.com.br/2025/12/firecracker-em-producao-systemd-restart-automatico-e-a-diferenca-entre-demo-e-servico-de-verdade/)** - Transformando microVMs em serviços de produção com restart automático, logs centralizados e hardening
 
 ## Estrutura
 
