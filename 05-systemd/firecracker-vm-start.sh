@@ -4,25 +4,25 @@
 #
 # Este script:
 # 1. Inicia o processo Firecracker
-# 2. Aguarda o socket API ficar disponivel
+# 2. Aguarda o socket API ficar disponível
 # 3. Configura kernel, rootfs, recursos e rede via API
 # 4. Inicia a microVM
-# 5. Aguarda o processo (mantendo o servico rodando)
+# 5. Aguarda o processo (mantendo o serviço rodando)
 #
-# Variaveis de ambiente:
+# Variáveis de ambiente:
 #   VM_NAME       - Nome da VM (default: default)
 #   SOCKET_PATH   - Caminho do socket API (default: /run/firecracker/${VM_NAME}.socket)
 #   KERNEL_PATH   - Caminho do kernel (default: /var/lib/firecracker/vmlinux.bin)
 #   ROOTFS_PATH   - Caminho do rootfs (default: /var/lib/firecracker/rootfs-${VM_NAME}.ext4)
-#   VCPU_COUNT    - Numero de vCPUs (default: 1)
-#   MEM_SIZE_MIB  - Memoria em MiB (default: 256)
+#   VCPU_COUNT    - Número de vCPUs (default: 1)
+#   MEM_SIZE_MIB  - Memória em MiB (default: 256)
 #   TAP_DEV       - Interface TAP (default: tap0)
 #   GUEST_MAC     - MAC address do guest (default: AA:FC:00:00:00:01)
 #   BOOT_ARGS     - Argumentos de boot do kernel (default: console=ttyS0 reboot=k panic=1 pci=off quiet)
 
 set -e
 
-# Configuracoes (podem ser sobrescritas por variaveis de ambiente)
+# Configurações (podem ser sobrescritas por variáveis de ambiente)
 VM_NAME="${VM_NAME:-default}"
 SOCKET_PATH="${SOCKET_PATH:-/run/firecracker/${VM_NAME}.socket}"
 KERNEL_PATH="${KERNEL_PATH:-/var/lib/firecracker/vmlinux.bin}"
@@ -66,7 +66,7 @@ cleanup() {
 
 trap cleanup EXIT SIGTERM SIGINT
 
-# Validacoes
+# Validações
 validate_files() {
     if [ ! -x "$FIRECRACKER_BIN" ]; then
         log_error "Firecracker nao encontrado ou nao executavel: $FIRECRACKER_BIN"
@@ -113,7 +113,7 @@ call_api() {
 }
 
 start_firecracker() {
-    # Garante que o diretorio do socket existe
+    # Garante que o diretório do socket existe
     mkdir -p "$(dirname "$SOCKET_PATH")"
 
     # Remove socket antigo se existir
@@ -133,7 +133,7 @@ start_firecracker() {
     $FIRECRACKER_BIN --api-sock "$SOCKET_PATH" &
     FC_PID=$!
 
-    # Aguarda socket ficar disponivel
+    # Aguarda socket ficar disponível
     local attempts=0
     local max_attempts=50
     while [ $attempts -lt $max_attempts ]; do
@@ -149,7 +149,7 @@ start_firecracker() {
         exit 1
     fi
 
-    # Pequena pausa pra garantir que o socket esta pronto
+    # Pequena pausa pra garantir que o socket está pronto
     sleep 0.2
 
     log_info "Firecracker iniciado (PID: $FC_PID)"
@@ -208,7 +208,7 @@ start_vm
 
 log_info "Aguardando processo Firecracker..."
 
-# Aguarda o processo Firecracker (isso mantem o servico "rodando")
+# Aguarda o processo Firecracker (isso mantém o serviço "rodando")
 wait $FC_PID
 exit_code=$?
 

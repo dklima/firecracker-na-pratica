@@ -6,10 +6,10 @@
 #   ./firecracker-network-setup.sh up    # Cria interface TAP e configura NAT
 #   ./firecracker-network-setup.sh down  # Remove interface TAP
 #
-# Variaveis de ambiente (opcionais):
+# Variáveis de ambiente (opcionais):
 #   TAP_DEV   - Nome da interface TAP (default: tap0)
 #   TAP_IP    - IP do host na interface TAP (default: 172.16.0.1)
-#   TAP_CIDR  - Mascara CIDR (default: 24)
+#   TAP_CIDR  - Máscara CIDR (default: 24)
 
 set -e
 
@@ -22,7 +22,7 @@ GUEST_NETWORK="${TAP_IP%.*}.0/${TAP_CIDR}"
 
 ACTION="${1:-up}"
 
-# Cores para output (desabilita se nao for terminal)
+# Cores para output (desabilita se não for terminal)
 if [ -t 1 ]; then
     RED='\033[0;31m'
     GREEN='\033[0;32m'
@@ -59,7 +59,7 @@ setup_network() {
     log_info "  TAP Device: $TAP_DEV"
     log_info "  TAP IP: $TAP_IP/$TAP_CIDR"
 
-    # Verifica se ja existe
+    # Verifica se já existe
     if ip link show "$TAP_DEV" &>/dev/null; then
         log_warn "Interface $TAP_DEV ja existe, pulando criacao"
     else
@@ -87,22 +87,22 @@ setup_network() {
 setup_firewalld() {
     log_info "Configurando firewalld..."
 
-    # Adiciona TAP a zona trusted
+    # Adiciona TAP à zona trusted
     firewall-cmd --zone=trusted --add-interface="$TAP_DEV" 2>/dev/null || true
 
     # Habilita masquerading (NAT)
     firewall-cmd --add-masquerade 2>/dev/null || true
 
-    # Isolamento - parte 1: rich rules (cadeia INPUT, trafego destinado ao host)
+    # Isolamento - parte 1: rich rules (cadeia INPUT, tráfego destinado ao host)
     firewall-cmd --zone=trusted --remove-rich-rule="rule family=ipv4 source address=${GUEST_NETWORK} destination address=10.0.0.0/8 drop" 2>/dev/null || true
     firewall-cmd --zone=trusted --remove-rich-rule="rule family=ipv4 source address=${GUEST_NETWORK} destination address=192.168.0.0/16 drop" 2>/dev/null || true
     firewall-cmd --zone=trusted --add-rich-rule="rule family=ipv4 source address=${GUEST_NETWORK} destination address=10.0.0.0/8 drop" 2>/dev/null || true
     firewall-cmd --zone=trusted --add-rich-rule="rule family=ipv4 source address=${GUEST_NETWORK} destination address=192.168.0.0/16 drop" 2>/dev/null || true
 
-    # Isolamento - parte 2: direct rules na cadeia FORWARD (trafego roteado pra LAN).
-    # As rich rules acima so pegam trafego pro proprio host. O trafego que a VM
+    # Isolamento - parte 2: direct rules na cadeia FORWARD (tráfego roteado pra LAN).
+    # As rich rules acima só pegam tráfego pro próprio host. O tráfego que a VM
     # tenta encaminhar pra outros hosts da rede local passa pela cadeia FORWARD,
-    # entao sem estas regras a VM ainda consegue escanear a rede local.
+    # então sem estas regras a VM ainda consegue escanear a rede local.
     firewall-cmd --direct --add-rule ipv4 filter FORWARD 0 -i "$TAP_DEV" -d "$GUEST_NETWORK" -j ACCEPT 2>/dev/null || true
     firewall-cmd --direct --add-rule ipv4 filter FORWARD 1 -i "$TAP_DEV" -d 10.0.0.0/8 -j DROP 2>/dev/null || true
     firewall-cmd --direct --add-rule ipv4 filter FORWARD 1 -i "$TAP_DEV" -d 172.16.0.0/12 -j DROP 2>/dev/null || true
@@ -114,7 +114,7 @@ setup_firewalld() {
 setup_iptables() {
     log_info "Configurando iptables..."
 
-    # Detecta interface de saida
+    # Detecta interface de saída
     DEFAULT_IFACE=$(ip route | grep default | awk '{print $5}' | head -1)
 
     if [ -z "$DEFAULT_IFACE" ]; then
@@ -128,7 +128,7 @@ setup_iptables() {
     iptables -t nat -C POSTROUTING -o "$DEFAULT_IFACE" -j MASQUERADE 2>/dev/null || \
         iptables -t nat -A POSTROUTING -o "$DEFAULT_IFACE" -j MASQUERADE
 
-    # Forward da TAP para interface de saida
+    # Forward da TAP para interface de saída
     iptables -C FORWARD -i "$TAP_DEV" -o "$DEFAULT_IFACE" -j ACCEPT 2>/dev/null || \
         iptables -A FORWARD -i "$TAP_DEV" -o "$DEFAULT_IFACE" -j ACCEPT
 
@@ -136,8 +136,8 @@ setup_iptables() {
     iptables -C FORWARD -i "$DEFAULT_IFACE" -o "$TAP_DEV" -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null || \
         iptables -A FORWARD -i "$DEFAULT_IFACE" -o "$TAP_DEV" -m state --state RELATED,ESTABLISHED -j ACCEPT
 
-    # Isolamento: a VM acessa a internet, mas nao a rede local do host.
-    # Permite a propria subnet da VM antes dos blocos (regra entra no topo).
+    # Isolamento: a VM acessa a internet, mas não a rede local do host.
+    # Permite a própria subnet da VM antes dos blocos (regra entra no topo).
     iptables -C FORWARD -i "$TAP_DEV" -d "$GUEST_NETWORK" -j ACCEPT 2>/dev/null || \
         iptables -I FORWARD -i "$TAP_DEV" -d "$GUEST_NETWORK" -j ACCEPT
 
@@ -156,7 +156,7 @@ setup_iptables() {
 teardown_network() {
     log_info "Removendo configuracao de rede..."
 
-    # Remove as regras de firewall desta TAP (mantem masquerading, que pode
+    # Remove as regras de firewall desta TAP (mantém masquerading, que pode
     # estar sendo usado por outras VMs).
     if command -v firewall-cmd &>/dev/null && systemctl is-active firewalld &>/dev/null; then
         firewall-cmd --zone=trusted --remove-interface="$TAP_DEV" 2>/dev/null || true

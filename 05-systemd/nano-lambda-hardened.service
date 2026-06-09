@@ -4,14 +4,14 @@ Documentation=https://github.com/firecracker-microvm/firecracker
 After=network.target
 Wants=network.target
 
-# Limite de restarts: no maximo 3 em 60s (StartLimit* vao na secao [Unit]).
+# Limite de restarts: no máximo 3 em 60s (StartLimit* vão na seção [Unit]).
 StartLimitBurst=3
 StartLimitIntervalSec=60
 
 [Service]
 Type=simple
 
-# Variaveis de ambiente para os scripts
+# Variáveis de ambiente para os scripts
 Environment=VM_NAME=nano-lambda
 Environment=SOCKET_PATH=/run/firecracker/nano-lambda.socket
 Environment=KERNEL_PATH=/var/lib/firecracker/vmlinux.bin
@@ -22,18 +22,18 @@ Environment=TAP_DEV=tap0
 Environment=TAP_IP=172.16.0.1
 Environment=GUEST_MAC=AA:FC:00:00:00:01
 
-# Cria diretorio em /run para o socket
+# Cria diretório em /run para o socket
 RuntimeDirectory=firecracker
 RuntimeDirectoryMode=0755
 
-# Setup/teardown de rede rodam com privilegio total (prefixo +), fora do
+# Setup/teardown de rede rodam com privilégio total (prefixo +), fora do
 # sandbox. Criar TAP, escrever sysctl e mexer no firewall precisam de root
-# pleno; o sandbox abaixo vale so para o processo principal (o Firecracker).
+# pleno; o sandbox abaixo vale só para o processo principal (o Firecracker).
 ExecStartPre=+/usr/local/bin/firecracker-network-setup.sh up
 ExecStart=/usr/local/bin/firecracker-vm-start.sh
 ExecStopPost=+/usr/local/bin/firecracker-network-setup.sh down
 
-# Politica de restart
+# Política de restart
 Restart=on-failure
 RestartSec=5
 
@@ -47,7 +47,7 @@ StandardError=journal
 SyslogIdentifier=nano-lambda
 
 # ============================================
-# HARDENING - Isolamento e seguranca
+# HARDENING - Isolamento e segurança
 # ============================================
 
 # Isolamento de filesystem
@@ -56,23 +56,23 @@ ProtectSystem=strict
 ProtectHome=yes
 PrivateTmp=yes
 
-# Diretorios onde o Firecracker pode escrever
+# Diretórios onde o Firecracker pode escrever
 ReadWritePaths=/var/lib/firecracker /run/firecracker
 
-# Restricoes de processo
-# Previne escalacao de privilegios via setuid/setgid
+# Restrições de processo
+# Previne escalação de privilégios via setuid/setgid
 NoNewPrivileges=yes
 
-# Restringe dispositivos: nega tudo, libera so /dev/kvm e /dev/net/tun.
-# NAO usamos PrivateDevices=yes aqui: ele esconde /dev/net/tun, e o Firecracker
+# Restringe dispositivos: nega tudo, libera só /dev/kvm e /dev/net/tun.
+# NÃO usamos PrivateDevices=yes aqui: ele esconde /dev/net/tun, e o Firecracker
 # precisa desse device pra anexar a interface TAP da VM.
 DevicePolicy=closed
 DeviceAllow=/dev/kvm rw
 DeviceAllow=/dev/net/tun rw
 
-# Capabilities minimas
-# CAP_NET_ADMIN: necessario para anexar a interface TAP
-# CAP_NET_RAW: necessario para algumas operacoes de rede
+# Capabilities mínimas
+# CAP_NET_ADMIN: necessário para anexar a interface TAP
+# CAP_NET_RAW: necessário para algumas operações de rede
 CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW
 AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW
 
@@ -81,7 +81,7 @@ AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW
 MemoryMax=512M
 TasksMax=10
 
-# Protecoes adicionais do kernel
+# Proteções adicionais do kernel
 ProtectKernelModules=yes
 ProtectKernelLogs=yes
 ProtectControlGroups=yes

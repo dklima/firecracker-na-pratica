@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 #
 # build-rootfs-service.sh
-# Constroi um rootfs Alpine que sobe a rede e fica vivo como servico.
+# Constrói um rootfs Alpine que sobe a rede e fica vivo como serviço.
 #
-# Diferenca para o rootfs do artigo 03: aquele rodava a funcao uma vez e
-# dava reboot (modelo Lambda). Um servico de verdade precisa ficar no ar,
-# entao aqui o init configura a rede e depois mantem a VM rodando.
+# Diferença para o rootfs do artigo 03: aquele rodava a função uma vez e
+# dava reboot (modelo Lambda). Um serviço de verdade precisa ficar no ar,
+# então aqui o init configura a rede e depois mantém a VM rodando.
 #
 set -e
 
@@ -76,13 +76,13 @@ chroot "${MOUNT_POINT}" /bin/sh -c '
     echo "::1 localhost" >> /etc/hosts
 
     cat > /etc/inittab << "INITTAB"
-# /etc/inittab - microVM de servico persistente
+# /etc/inittab - microVM de serviço persistente
 
 ::sysinit:/sbin/openrc sysinit
 ::sysinit:/sbin/openrc boot
 ::wait:/sbin/openrc default
 
-# Sobe a rede e mantem a VM viva (servico, nao Lambda)
+# Sobe a rede e mantém a VM viva (serviço, não Lambda)
 ::wait:/usr/local/bin/vm-service.sh
 
 ::ctrlaltdel:/sbin/reboot
@@ -97,7 +97,7 @@ DNS
 
     mkdir -p /usr/local/bin
 
-    # Script de servico: configura rede e fica no ar
+    # Script de serviço: configura rede e fica no ar
     cat > /usr/local/bin/vm-service.sh << "SCRIPT"
 #!/bin/sh
 echo ""
@@ -107,7 +107,7 @@ ip link set eth0 up
 ip addr add 172.16.0.2/24 dev eth0
 ip route add default via 172.16.0.1
 
-# Relatorio de conectividade (aparece no journal do host)
+# Relatório de conectividade (aparece no journal do host)
 if ping -c 1 -W 2 8.8.8.8 > /dev/null 2>&1; then
     echo "[net] internet: OK"
 else
@@ -117,7 +117,7 @@ fi
 echo "=== nano-lambda: servico no ar ==="
 echo "READY"
 
-# Mantem a microVM viva. Em producao, aqui rodaria seu worker ou servidor.
+# Mantém a microVM viva. Em produção, aqui rodaria seu worker ou servidor.
 while true; do
     sleep 3600
 done

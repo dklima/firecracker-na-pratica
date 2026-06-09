@@ -4,14 +4,14 @@ Documentation=https://github.com/firecracker-microvm/firecracker
 After=network.target
 Wants=network.target
 
-# Limite de restarts: no maximo 3 em 60s (StartLimit* vao na secao [Unit]).
+# Limite de restarts: no máximo 3 em 60s (StartLimit* vão na seção [Unit]).
 StartLimitBurst=3
 StartLimitIntervalSec=60
 
 [Service]
 Type=simple
 
-# Variaveis de ambiente para os scripts
+# Variáveis de ambiente para os scripts
 Environment=VM_NAME=nano-lambda
 Environment=SOCKET_PATH=/run/firecracker/nano-lambda.socket
 Environment=KERNEL_PATH=/var/lib/firecracker/vmlinux.bin
@@ -22,7 +22,7 @@ Environment=TAP_DEV=tap0
 Environment=TAP_IP=172.16.0.1
 Environment=GUEST_MAC=AA:FC:00:00:00:01
 
-# Cria diretorio em /run para o socket
+# Cria diretório em /run para o socket
 RuntimeDirectory=firecracker
 RuntimeDirectoryMode=0755
 
@@ -35,7 +35,7 @@ ExecStart=/usr/local/bin/firecracker-vm-start.sh
 # Depois de parar: limpa rede
 ExecStopPost=/usr/local/bin/firecracker-network-setup.sh down
 
-# Politica de restart
+# Política de restart
 Restart=on-failure
 RestartSec=5
 

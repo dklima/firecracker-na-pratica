@@ -4,26 +4,26 @@ Documentation=https://github.com/firecracker-microvm/firecracker
 After=network.target
 Wants=network.target
 
-# Limite de restarts: no maximo 3 em 60s (StartLimit* vao na secao [Unit]).
+# Limite de restarts: no máximo 3 em 60s (StartLimit* vão na seção [Unit]).
 StartLimitBurst=3
 StartLimitIntervalSec=60
 
 [Service]
 Type=simple
 
-# %i e substituido pelo nome da instancia
+# %i é substituído pelo nome da instância
 # Exemplo: firecracker@web.service -> %i = web
 Environment=VM_NAME=%i
 Environment=SOCKET_PATH=/run/firecracker/%i.socket
 Environment=KERNEL_PATH=/var/lib/firecracker/vmlinux.bin
 Environment=ROOTFS_PATH=/var/lib/firecracker/rootfs-%i.ext4
 
-# Carrega configuracoes especificas da VM (se existir)
+# Carrega configurações específicas da VM (se existir)
 # Arquivo: /etc/firecracker/<nome>.conf
 # Formato: VAR=valor (uma por linha)
 EnvironmentFile=-/etc/firecracker/%i.conf
 
-# Cria diretorio em /run para o socket
+# Cria diretório em /run para o socket
 RuntimeDirectory=firecracker
 RuntimeDirectoryMode=0755
 
@@ -36,7 +36,7 @@ ExecStart=/usr/local/bin/firecracker-vm-start.sh
 # Depois de parar: limpa rede
 ExecStopPost=/usr/local/bin/firecracker-network-setup.sh down
 
-# Politica de restart
+# Política de restart
 Restart=on-failure
 RestartSec=5
 
@@ -44,7 +44,7 @@ RestartSec=5
 TimeoutStartSec=30
 TimeoutStopSec=10
 
-# Logs (usa nome da instancia como identificador)
+# Logs (usa nome da instância como identificador)
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=firecracker-%i
