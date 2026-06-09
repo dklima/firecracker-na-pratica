@@ -14,16 +14,20 @@ Requer:
     - Firecracker binario (./firecracker)
     - Kernel Linux (./vmlinux.bin)
     - Rootfs com sklearn (./rootfs-sklearn.ext4)
-    - pip install requests-unixsocket
+
+Sem dependencias externas: usa so a biblioteca padrao do Python
+(socket + http.client falam com o socket Unix da API do Firecracker).
 """
 
 import subprocess
-import requests_unixsocket
 import time
 import shutil
 import tempfile
 import os
 import sys
+import json
+import socket
+import http.client
 
 # Configuracoes
 FIRECRACKER_BIN = "./firecracker"
@@ -40,25 +44,31 @@ MEM_SIZE_MIB = 512
 READY_MARKER = "SNAPSHOT_READY"
 
 
-def api_url(path):
-    encoded_socket = SOCKET_PATH.replace("/", "%2F")
-    return f"http+unix://{encoded_socket}{path}"
+class UnixHTTPConnection(http.client.HTTPConnection):
+    """HTTPConnection que fala por um socket Unix em vez de TCP."""
+
+    def __init__(self, socket_path):
+        super().__init__("localhost")
+        self.socket_path = socket_path
+
+    def connect(self):
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.connect(self.socket_path)
+        self.sock = sock
 
 
 def call_api(method, path, data=None):
-    session = requests_unixsocket.Session()
-    url = api_url(path)
-    if method == "PUT":
-        resp = session.put(url, json=data)
-    elif method == "PATCH":
-        resp = session.patch(url, json=data)
-    elif method == "GET":
-        resp = session.get(url)
-    else:
-        raise ValueError(f"Metodo nao suportado: {method}")
-    if resp.status_code >= 400:
-        raise Exception(f"API error {resp.status_code}: {resp.text}")
-    return resp
+    conn = UnixHTTPConnection(SOCKET_PATH)
+    body = json.dumps(data) if data is not None else None
+    headers = {"Accept": "application/json", "Content-Type": "application/json"}
+    conn.request(method, path, body=body, headers=headers)
+    resp = conn.getresponse()
+    status = resp.status
+    text = resp.read().decode("utf-8", "replace")
+    conn.close()
+    if status >= 400:
+        raise Exception(f"API error {status}: {text}")
+    return status, text
 
 
 def check_dependencies():
@@ -83,8 +93,7 @@ def check_dependencies():
 
 def cleanup():
     """Limpa processos e arquivos de execucoes anteriores."""
-    subprocess.run(["pkill", "-9", "-f", "fc-snapshot"], capture_output=True)
-    subprocess.run(["pkill", "-9", "firecracker"], capture_output=True)
+    subprocess.run(["pkill", "-9", "-x", "firecracker"], capture_output=True)
     time.sleep(1)
     if os.path.exists(SOCKET_PATH):
         os.remove(SOCKET_PATH)
@@ -94,39 +103,19 @@ def cleanup():
 
 def wait_for_ready(log_file, timeout=60):
     """
-    Aguarda VM sinalizar que esta pronta para snapshot.
+    Aguarda a VM sinalizar que esta pronta para snapshot.
 
     O handshake e importante: sem ele, voce pode tirar snapshot
     com a VM ainda carregando bibliotecas.
-
-    Tenta primeiro esperar pelo marcador; se nao aparecer, aguarda
-    ate o timeout e continua (sklearn pode demorar mais de 60s na
-    primeira vez).
     """
     start = time.time()
-    last_size = 0
-    stable_count = 0
-
     while time.time() - start < timeout:
         if os.path.exists(log_file):
             with open(log_file, "r") as f:
-                content = f.read()
-                # Se marcador apareceu, VM esta pronta
-                if READY_MARKER in content:
+                if READY_MARKER in f.read():
                     return True
-                # Se log parou de crescer por 5s, sklearn provavelmente terminou
-                current_size = len(content)
-                if current_size == last_size:
-                    stable_count += 1
-                    if stable_count >= 50:  # 5 segundos sem mudanca
-                        return True
-                else:
-                    stable_count = 0
-                    last_size = current_size
         time.sleep(0.1)
-
-    # Timeout - retorna True de qualquer forma para tentar o snapshot
-    return True
+    return False
 
 
 def prepare_rootfs_for_snapshot():
@@ -140,7 +129,7 @@ def start_firecracker(log_file=None):
     if os.path.exists(SOCKET_PATH):
         os.remove(SOCKET_PATH)
 
-    stdout = open(log_file, "w") if log_file else subprocess.PIPE
+    stdout = open(log_file, "w") if log_file else subprocess.DEVNULL
 
     proc = subprocess.Popen(
         [FIRECRACKER_BIN, "--api-sock", SOCKET_PATH],
@@ -203,34 +192,31 @@ def main():
         cold_start = time.time()
 
         rootfs = prepare_rootfs_for_snapshot()
-        rootfs_time = time.time() - cold_start
-        print(f"    Rootfs preparado ({rootfs_time:.3f}s)")
+        print(f"    Rootfs preparado ({time.time() - cold_start:.3f}s)")
 
         log_file = "/tmp/fc-boot.log"
         fc_proc = start_firecracker(log_file)
-        fc_time = time.time() - cold_start
-        print(f"    Firecracker iniciado ({fc_time:.3f}s)")
+        print(f"    Firecracker iniciado ({time.time() - cold_start:.3f}s)")
 
         configure_vm(rootfs)
-        config_time = time.time() - cold_start
-        print(f"    VM configurada ({config_time:.3f}s)")
+        print(f"    VM configurada ({time.time() - cold_start:.3f}s)")
 
         call_api("PUT", "/actions", {"action_type": "InstanceStart"})
         print("    VM iniciada - aguardando SNAPSHOT_READY...")
 
-        # Aguarda VM sinalizar que esta pronta (handshake)
+        # Aguarda a VM sinalizar que esta pronta (handshake)
         if not wait_for_ready(log_file, timeout=60):
-            print("    AVISO: Timeout esperando VM - continuando mesmo assim...")
+            print("    ERRO: Timeout esperando a VM ficar pronta")
+            return
 
         cold_time = time.time() - cold_start
         print(f"\n    >>> COLD START TOTAL: {cold_time:.3f}s")
 
-        # Mostra log do boot
+        # Mostra timing do sklearn
         with open(log_file, "r") as f:
-            boot_log = f.read()
-        for line in boot_log.split("\n"):
-            if "[TIMING]" in line or "[READY]" in line:
-                print(f"    {line}")
+            for line in f:
+                if "[TIMING]" in line or "[READY]" in line:
+                    print(f"    {line.strip()}")
 
         # PARTE 2: Criar Snapshot
         print("\n[2] CRIANDO SNAPSHOT")
@@ -239,8 +225,7 @@ def main():
         snapshot_start = time.time()
 
         call_api("PATCH", "/vm", {"state": "Paused"})
-        pause_time = time.time() - snapshot_start
-        print(f"    VM pausada ({pause_time:.3f}s)")
+        print(f"    VM pausada ({time.time() - snapshot_start:.3f}s)")
 
         os.makedirs(SNAPSHOT_PATH, exist_ok=True)
 
@@ -275,8 +260,7 @@ def main():
         restore_start = time.time()
 
         fc_proc2 = start_firecracker()
-        fc_start_time = time.time() - restore_start
-        print(f"    Firecracker iniciado ({fc_start_time:.3f}s)")
+        print(f"    Firecracker iniciado ({time.time() - restore_start:.3f}s)")
 
         call_api("PUT", "/snapshot/load", {
             "snapshot_path": SNAPSHOT_FILE,
@@ -299,7 +283,7 @@ def main():
         print(f"  Criar Snapshot: {snapshot_time:.3f}s")
         print(f"  Restore:        {restore_time:.3f}s")
         print()
-        print(f"  Speedup:        {cold_time/restore_time:.1f}x mais rapido")
+        print(f"  Speedup:        {cold_time / restore_time:.1f}x mais rapido")
         print(f"  Economia:       {cold_time - restore_time:.3f}s por execucao")
         print("=" * 60)
 
@@ -311,7 +295,7 @@ def main():
         }
 
     finally:
-        # Cleanup robusto: garante que recursos sao liberados mesmo em caso de erro
+        # Cleanup robusto: libera recursos mesmo em caso de erro
         if fc_proc2:
             try:
                 fc_proc2.terminate()

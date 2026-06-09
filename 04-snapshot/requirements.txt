@@ -1,2 +1,3 @@
-# Dependencias para o test-snapshot.py (host)
-requests-unixsocket>=0.3.0
+# test-snapshot.py (host): nenhuma dependencia externa.
+# Usa so a biblioteca padrao do Python (socket + http.client) para falar
+# com o socket Unix da API do Firecracker. Nao precisa de pip install.
