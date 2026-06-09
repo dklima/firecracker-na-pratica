@@ -10,11 +10,14 @@ Uso:
 Exemplo:
     sudo python3 nano-lambda.py exemplo-qrcode/handler.py "https://fogonacaixadagua.com.br"
 
-Requer execução como root (para montar rootfs e executar Firecracker).
+Requer execução como root (para montar o rootfs e executar o Firecracker).
+Não precisa de nenhuma biblioteca externa: usa só a stdlib do Python.
 """
 
 import subprocess
-import requests_unixsocket
+import socket
+import http.client
+import json
 import time
 import shutil
 import tempfile
@@ -30,6 +33,25 @@ ROOTFS_TEMPLATE = "./rootfs-python.ext4"
 SOCKET_PATH = "/tmp/firecracker-nanolambda.socket"
 VCPU_COUNT = 1
 MEM_SIZE_MIB = 256
+
+
+class UnixHTTPConnection(http.client.HTTPConnection):
+    """
+    Conexão HTTP sobre um socket Unix.
+
+    A API do Firecracker fala HTTP, mas escuta num socket Unix em vez
+    de uma porta TCP. A stdlib do Python não conversa com socket Unix
+    direto, então estendemos HTTPConnection e trocamos só o connect().
+    """
+
+    def __init__(self, socket_path):
+        super().__init__("localhost")
+        self.socket_path = socket_path
+
+    def connect(self):
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.connect(self.socket_path)
+        self.sock = sock
 
 
 class NanoLambda:
@@ -48,27 +70,21 @@ class NanoLambda:
         self.temp_rootfs = None
         self.output_file = "/tmp/firecracker-output.log"
 
-    def _api_url(self, path):
-        """Converte path para URL do socket Unix."""
-        encoded_socket = self.socket_path.replace("/", "%2F")
-        return f"http+unix://{encoded_socket}{path}"
-
     def _call_api(self, method, path, data=None):
         """Faz chamada para a API REST do Firecracker via socket Unix."""
-        session = requests_unixsocket.Session()
-        url = self._api_url(path)
+        conn = UnixHTTPConnection(self.socket_path)
+        body = json.dumps(data) if data is not None else None
+        headers = {"Content-Type": "application/json", "Accept": "application/json"}
 
-        if method == "PUT":
-            resp = session.put(url, json=data)
-        elif method == "GET":
-            resp = session.get(url)
-        else:
-            raise ValueError(f"Método não suportado: {method}")
+        conn.request(method, path, body=body, headers=headers)
+        resp = conn.getresponse()
+        payload = resp.read().decode("utf-8", "replace")
+        conn.close()
 
-        if resp.status_code >= 400:
-            raise Exception(f"API error {resp.status_code}: {resp.text}")
+        if resp.status >= 400:
+            raise Exception(f"API error {resp.status}: {payload}")
 
-        return resp
+        return payload
 
     def prepare_rootfs(self, function_path, input_data):
         """
@@ -83,7 +99,7 @@ class NanoLambda:
             delete=False
         ).name
 
-        print(f"[*] Copiando rootfs template...")
+        print("[*] Copiando rootfs template...")
         shutil.copy(ROOTFS_TEMPLATE, self.temp_rootfs)
 
         # Monta e copia arquivos
@@ -153,13 +169,13 @@ class NanoLambda:
 
         Define kernel, rootfs e recursos (CPU/memória).
         """
-        print(f"[*] Configurando kernel...")
+        print("[*] Configurando kernel...")
         self._call_api("PUT", "/boot-source", {
             "kernel_image_path": KERNEL_PATH,
             "boot_args": "console=ttyS0 reboot=k panic=1 pci=off quiet"
         })
 
-        print(f"[*] Configurando rootfs...")
+        print("[*] Configurando rootfs...")
         self._call_api("PUT", "/drives/rootfs", {
             "drive_id": "rootfs",
             "path_on_host": self.temp_rootfs,
@@ -180,7 +196,7 @@ class NanoLambda:
         A VM executa a função e desliga automaticamente.
         Capturamos o output do console serial do arquivo de log.
         """
-        print(f"[*] Iniciando microVM...")
+        print("[*] Iniciando microVM...")
         self._call_api("PUT", "/actions", {"action_type": "InstanceStart"})
 
         print(f"[*] Aguardando execução (timeout: {timeout}s)...")
@@ -216,7 +232,7 @@ class NanoLambda:
 
     def cleanup(self):
         """Remove recursos temporários."""
-        print(f"[*] Limpando...")
+        print("[*] Limpando...")
 
         # Fecha handle do arquivo se ainda estiver aberto
         if hasattr(self, 'output_handle') and not self.output_handle.closed:

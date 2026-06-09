@@ -11,12 +11,8 @@ Scripts e código do artigo **"Construindo um nano-Lambda: como serverless funci
 ## Requisitos
 
 - Firecracker, kernel e rootfs do artigo anterior
-- Docker ou Podman
-- Python 3.8+ com as bibliotecas:
-
-```bash
-pip install requests requests-unixsocket
-```
+- Docker ou Podman (para construir o rootfs com Python)
+- Python 3.8+ (o `nano-lambda.py` usa só a biblioteca padrão, sem `pip install`)
 
 ## Uso rápido
 

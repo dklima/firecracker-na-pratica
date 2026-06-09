@@ -176,7 +176,11 @@ fi
 echo ""
 sync
 sleep 1
-poweroff -f
+# reboot -f (e nao poweroff) porque com reboot=k no boot_args o kernel faz
+# um reset via controlador de teclado que o Firecracker detecta e encerra o
+# processo. poweroff -f so derruba a CPU ("System halted") e o Firecracker
+# ficaria preso ate o timeout.
+reboot -f
 SCRIPT
     chmod +x /run-function.sh
 '
