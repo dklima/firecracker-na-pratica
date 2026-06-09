@@ -14,7 +14,7 @@ Scripts e configurações do artigo **"Firecracker: A tecnologia por trás do AW
 ./check-kvm.sh
 
 # 2. Baixa o Firecracker, kernel e rootfs
-FIRECRACKER_VERSION="v1.13.0"
+FIRECRACKER_VERSION="v1.16.0"
 ARCH=$(uname -m)
 
 curl -L -o firecracker.tgz \
@@ -25,7 +25,7 @@ mv release-${FIRECRACKER_VERSION}-${ARCH}/firecracker-${FIRECRACKER_VERSION}-${A
 chmod +x firecracker
 
 curl -L -o vmlinux.bin \
-  "https://github.com/dklima/firecracker-na-pratica/releases/download/v1.0.0/vmlinux-5.10.239"
+  "https://github.com/dklima/firecracker-na-pratica/releases/download/v1.0.0/vmlinux-6.1.155"
 
 curl -L -o rootfs.ext4 \
   "https://github.com/dklima/firecracker-na-pratica/releases/download/v1.0.0/rootfs.ext4"
