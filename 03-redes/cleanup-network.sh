@@ -39,9 +39,15 @@ if [ "${FIREWALL_TYPE}" = "firewalld" ]; then
     # Remove interface da zona trusted
     firewall-cmd --zone=trusted --remove-interface="${TAP_DEV}" 2>/dev/null || true
 
-    # Remove rich rules de isolamento
+    # Remove rich rules de isolamento (cadeia INPUT)
     firewall-cmd --zone=trusted --remove-rich-rule="rule family=ipv4 source address=${GUEST_NETWORK} destination address=10.0.0.0/8 drop" 2>/dev/null || true
     firewall-cmd --zone=trusted --remove-rich-rule="rule family=ipv4 source address=${GUEST_NETWORK} destination address=192.168.0.0/16 drop" 2>/dev/null || true
+
+    # Remove direct rules de isolamento (cadeia FORWARD)
+    firewall-cmd --direct --remove-rule ipv4 filter FORWARD 0 -i "${TAP_DEV}" -d "${GUEST_NETWORK}" -j ACCEPT 2>/dev/null || true
+    firewall-cmd --direct --remove-rule ipv4 filter FORWARD 1 -i "${TAP_DEV}" -d 10.0.0.0/8 -j DROP 2>/dev/null || true
+    firewall-cmd --direct --remove-rule ipv4 filter FORWARD 1 -i "${TAP_DEV}" -d 172.16.0.0/12 -j DROP 2>/dev/null || true
+    firewall-cmd --direct --remove-rule ipv4 filter FORWARD 1 -i "${TAP_DEV}" -d 192.168.0.0/16 -j DROP 2>/dev/null || true
 
     # Nota: masquerading e mantido pois pode ser usado por outras VMs
     echo "      Masquerading mantido (pode afetar outras VMs)"

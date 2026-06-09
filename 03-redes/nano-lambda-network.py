@@ -11,10 +11,12 @@ Exemplo:
     sudo python3 nano-lambda-network.py exemplo-validador/handler.py "https://google.com,https://github.com"
 
 Requer execucao como root (para montar rootfs, configurar rede e executar Firecracker).
+Nao precisa de nenhuma biblioteca externa no host: usa so a stdlib do Python.
 """
 
 import subprocess
-import requests_unixsocket
+import socket
+import http.client
 import time
 import shutil
 import tempfile
@@ -36,6 +38,26 @@ TAP_DEV = "tap0"
 TAP_IP = "172.16.0.1"
 GUEST_IP = "172.16.0.2"
 GUEST_MAC = "AA:FC:00:00:00:01"
+GUEST_NETWORK = "172.16.0.0/24"
+
+
+class UnixHTTPConnection(http.client.HTTPConnection):
+    """
+    Conexao HTTP sobre um socket Unix.
+
+    A API do Firecracker fala HTTP, mas escuta num socket Unix em vez
+    de uma porta TCP. A stdlib do Python nao conversa com socket Unix
+    direto, entao estendemos HTTPConnection e trocamos so o connect().
+    """
+
+    def __init__(self, socket_path):
+        super().__init__("localhost")
+        self.socket_path = socket_path
+
+    def connect(self):
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.connect(self.socket_path)
+        self.sock = sock
 
 
 class NanoLambdaNetwork:
@@ -50,34 +72,35 @@ class NanoLambdaNetwork:
         self.output_file = "/tmp/firecracker-output.log"
         self.network_configured = False
 
-    def _api_url(self, path):
-        """Converte path para URL do socket Unix."""
-        encoded_socket = self.socket_path.replace("/", "%2F")
-        return f"http+unix://{encoded_socket}{path}"
-
     def _call_api(self, method, path, data=None):
         """Faz chamada para a API REST do Firecracker via socket Unix."""
-        session = requests_unixsocket.Session()
-        url = self._api_url(path)
+        conn = UnixHTTPConnection(self.socket_path)
+        body = json.dumps(data) if data is not None else None
+        headers = {"Content-Type": "application/json", "Accept": "application/json"}
 
-        if method == "PUT":
-            resp = session.put(url, json=data)
-        elif method == "GET":
-            resp = session.get(url)
-        else:
-            raise ValueError(f"Metodo nao suportado: {method}")
+        conn.request(method, path, body=body, headers=headers)
+        resp = conn.getresponse()
+        payload = resp.read().decode("utf-8", "replace")
+        conn.close()
 
-        if resp.status_code >= 400:
-            raise Exception(f"API error {resp.status_code}: {resp.text}")
+        if resp.status >= 400:
+            raise Exception(f"API error {resp.status}: {payload}")
 
-        return resp
+        return payload
+
+    def _firewalld_active(self):
+        """Detecta se o firewalld esta ativo (Fedora/RHEL)."""
+        try:
+            result = subprocess.run(
+                ["systemctl", "is-active", "--quiet", "firewalld"]
+            )
+            return result.returncode == 0
+        except FileNotFoundError:
+            return False
 
     def _check_iptables_rule(self, args):
         """Verifica se uma regra iptables ja existe (-C = check)."""
-        result = subprocess.run(
-            ["iptables"] + args,
-            capture_output=True
-        )
+        result = subprocess.run(["iptables"] + args, capture_output=True)
         return result.returncode == 0
 
     def _add_iptables_rule_if_missing(self, check_args, add_args):
@@ -85,8 +108,93 @@ class NanoLambdaNetwork:
         if not self._check_iptables_rule(check_args):
             subprocess.run(["iptables"] + add_args, check=False)
 
+    def _firewalld_direct(self, args):
+        """Adiciona uma regra direta do firewalld (idempotente)."""
+        subprocess.run(
+            ["firewall-cmd", "--direct", "--add-rule", "ipv4", "filter"] + args,
+            check=False
+        )
+
+    def _setup_firewalld(self):
+        """Configura NAT e isolamento via firewalld (Fedora)."""
+        print("    Firewall: firewalld")
+        subprocess.run(
+            ["firewall-cmd", "--zone=trusted", f"--add-interface={TAP_DEV}"],
+            check=False
+        )
+        subprocess.run(["firewall-cmd", "--add-masquerade"], check=False)
+
+        # Rich rules: bloqueiam o trafego destinado ao proprio host (cadeia INPUT).
+        for net in ("10.0.0.0/8", "192.168.0.0/16"):
+            subprocess.run([
+                "firewall-cmd", "--zone=trusted",
+                f"--add-rich-rule=rule family=ipv4 source address={GUEST_NETWORK} "
+                f"destination address={net} drop"
+            ], check=False)
+
+        # Direct rules na cadeia FORWARD: bloqueiam o que a VM tenta ROTEAR pra LAN.
+        # As rich rules acima so filtram trafego destinado ao host; o trafego
+        # encaminhado pra outros hosts da rede local passa pela cadeia FORWARD,
+        # entao precisamos de regras diretas nela.
+        self._firewalld_direct(
+            ["FORWARD", "0", "-i", TAP_DEV, "-d", GUEST_NETWORK, "-j", "ACCEPT"]
+        )
+        for net in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"):
+            self._firewalld_direct(
+                ["FORWARD", "1", "-i", TAP_DEV, "-d", net, "-j", "DROP"]
+            )
+
+    def _setup_iptables(self):
+        """Configura NAT e isolamento via iptables (Ubuntu e outros)."""
+        print("    Firewall: iptables")
+        result = subprocess.run(
+            ["ip", "route", "show", "default"],
+            capture_output=True, text=True
+        )
+        if "dev " not in result.stdout:
+            raise Exception("Nao foi possivel detectar interface de saida")
+
+        output_iface = result.stdout.split("dev ")[1].split()[0]
+        print(f"    Interface de saida: {output_iface}")
+
+        # NAT (apenas se a regra nao existir)
+        self._add_iptables_rule_if_missing(
+            ["-t", "nat", "-C", "POSTROUTING", "-o", output_iface, "-j", "MASQUERADE"],
+            ["-t", "nat", "-A", "POSTROUTING", "-o", output_iface, "-j", "MASQUERADE"]
+        )
+        self._add_iptables_rule_if_missing(
+            ["-C", "FORWARD", "-i", TAP_DEV, "-o", output_iface, "-j", "ACCEPT"],
+            ["-A", "FORWARD", "-i", TAP_DEV, "-o", output_iface, "-j", "ACCEPT"]
+        )
+        self._add_iptables_rule_if_missing(
+            ["-C", "FORWARD", "-i", output_iface, "-o", TAP_DEV,
+             "-m", "state", "--state", "RELATED,ESTABLISHED", "-j", "ACCEPT"],
+            ["-A", "FORWARD", "-i", output_iface, "-o", TAP_DEV,
+             "-m", "state", "--state", "RELATED,ESTABLISHED", "-j", "ACCEPT"]
+        )
+
+        # Isolamento: inserido no TOPO da FORWARD pra ter prioridade sobre o ACCEPT
+        # generico acima. Libera a subnet da propria VM e bloqueia o resto das
+        # redes privadas.
+        subprocess.run(
+            ["iptables", "-I", "FORWARD", "-i", TAP_DEV, "-d", GUEST_NETWORK, "-j", "ACCEPT"],
+            check=False
+        )
+        subprocess.run(
+            ["iptables", "-I", "FORWARD", "2", "-i", TAP_DEV, "-d", "10.0.0.0/8", "-j", "DROP"],
+            check=False
+        )
+        subprocess.run(
+            ["iptables", "-I", "FORWARD", "3", "-i", TAP_DEV, "-d", "172.16.0.0/12", "-j", "DROP"],
+            check=False
+        )
+        subprocess.run(
+            ["iptables", "-I", "FORWARD", "4", "-i", TAP_DEV, "-d", "192.168.0.0/16", "-j", "DROP"],
+            check=False
+        )
+
     def setup_network(self):
-        """Configura interface TAP e NAT no host."""
+        """Configura interface TAP, NAT e isolamento no host."""
         # Verifica se ja foi configurado (evita duplicar regras)
         if os.path.exists(f"/sys/class/net/{TAP_DEV}"):
             print("[*] Rede ja configurada, verificando...")
@@ -103,50 +211,21 @@ class NanoLambdaNetwork:
             ["ip", "tuntap", "add", "dev", TAP_DEV, "mode", "tap"],
             check=True
         )
-
         subprocess.run(
             ["ip", "addr", "add", f"{TAP_IP}/24", "dev", TAP_DEV],
             check=True
         )
-        subprocess.run(
-            ["ip", "link", "set", TAP_DEV, "up"],
-            check=True
-        )
-
+        subprocess.run(["ip", "link", "set", TAP_DEV, "up"], check=True)
         subprocess.run(
             ["sysctl", "-w", "net.ipv4.ip_forward=1"],
             check=True, capture_output=True
         )
 
-        result = subprocess.run(
-            ["ip", "route", "show", "default"],
-            capture_output=True, text=True
-        )
-        if "dev " not in result.stdout:
-            raise Exception("Nao foi possivel detectar interface de saida")
-
-        output_iface = result.stdout.split("dev ")[1].split()[0]
-        print(f"    Interface de saida: {output_iface}")
-
-        # Configura NAT (apenas se regra nao existir)
-        self._add_iptables_rule_if_missing(
-            ["-t", "nat", "-C", "POSTROUTING", "-o", output_iface, "-j", "MASQUERADE"],
-            ["-t", "nat", "-A", "POSTROUTING", "-o", output_iface, "-j", "MASQUERADE"]
-        )
-
-        # Permite forwarding TAP -> internet (apenas se regra nao existir)
-        self._add_iptables_rule_if_missing(
-            ["-C", "FORWARD", "-i", TAP_DEV, "-o", output_iface, "-j", "ACCEPT"],
-            ["-A", "FORWARD", "-i", TAP_DEV, "-o", output_iface, "-j", "ACCEPT"]
-        )
-
-        # Permite trafego de retorno (apenas se regra nao existir)
-        self._add_iptables_rule_if_missing(
-            ["-C", "FORWARD", "-i", output_iface, "-o", TAP_DEV,
-             "-m", "state", "--state", "RELATED,ESTABLISHED", "-j", "ACCEPT"],
-            ["-A", "FORWARD", "-i", output_iface, "-o", TAP_DEV,
-             "-m", "state", "--state", "RELATED,ESTABLISHED", "-j", "ACCEPT"]
-        )
+        # Detecta o firewall e configura NAT + isolamento na sintaxe correta
+        if self._firewalld_active():
+            self._setup_firewalld()
+        else:
+            self._setup_iptables()
 
         self.network_configured = True
         print("    Rede configurada")
@@ -158,7 +237,7 @@ class NanoLambdaNetwork:
             delete=False
         ).name
 
-        print(f"[*] Copiando rootfs template...")
+        print("[*] Copiando rootfs template...")
         shutil.copy(ROOTFS_TEMPLATE, self.temp_rootfs)
 
         mount_point = tempfile.mkdtemp()
@@ -210,13 +289,13 @@ class NanoLambdaNetwork:
 
     def configure_vm(self):
         """Configura a microVM via API REST."""
-        print(f"[*] Configurando kernel...")
+        print("[*] Configurando kernel...")
         self._call_api("PUT", "/boot-source", {
             "kernel_image_path": KERNEL_PATH,
             "boot_args": "console=ttyS0 reboot=k panic=1 pci=off quiet"
         })
 
-        print(f"[*] Configurando rootfs...")
+        print("[*] Configurando rootfs...")
         self._call_api("PUT", "/drives/rootfs", {
             "drive_id": "rootfs",
             "path_on_host": self.temp_rootfs,
@@ -230,7 +309,7 @@ class NanoLambdaNetwork:
             "mem_size_mib": MEM_SIZE_MIB
         })
 
-        print(f"[*] Configurando rede da VM...")
+        print("[*] Configurando rede da VM...")
         self._call_api("PUT", "/network-interfaces/eth0", {
             "iface_id": "eth0",
             "guest_mac": GUEST_MAC,
@@ -239,7 +318,7 @@ class NanoLambdaNetwork:
 
     def run_vm(self, timeout=60):
         """Inicia a VM e aguarda a execucao."""
-        print(f"[*] Iniciando microVM...")
+        print("[*] Iniciando microVM...")
         self._call_api("PUT", "/actions", {"action_type": "InstanceStart"})
 
         print(f"[*] Aguardando execucao (timeout: {timeout}s)...")
@@ -270,7 +349,7 @@ class NanoLambdaNetwork:
 
     def cleanup(self):
         """Remove recursos temporarios."""
-        print(f"[*] Limpando...")
+        print("[*] Limpando...")
 
         if hasattr(self, 'output_handle') and not self.output_handle.closed:
             self.output_handle.close()

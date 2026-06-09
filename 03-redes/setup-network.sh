@@ -72,12 +72,21 @@ if [ "${FIREWALL_TYPE}" = "firewalld" ]; then
     firewall-cmd --add-masquerade 2>/dev/null || true
 
     echo "[5/5] Configurando isolamento de rede..."
-    # Bloqueia acesso a redes privadas via rich rules
-    # Remove regras antigas primeiro
+
+    # Rich rules: bloqueiam o trafego destinado ao PROPRIO host (cadeia INPUT).
     firewall-cmd --zone=trusted --remove-rich-rule="rule family=ipv4 source address=${GUEST_NETWORK} destination address=10.0.0.0/8 drop" 2>/dev/null || true
     firewall-cmd --zone=trusted --remove-rich-rule="rule family=ipv4 source address=${GUEST_NETWORK} destination address=192.168.0.0/16 drop" 2>/dev/null || true
     firewall-cmd --zone=trusted --add-rich-rule="rule family=ipv4 source address=${GUEST_NETWORK} destination address=10.0.0.0/8 drop" 2>/dev/null || true
     firewall-cmd --zone=trusted --add-rich-rule="rule family=ipv4 source address=${GUEST_NETWORK} destination address=192.168.0.0/16 drop" 2>/dev/null || true
+
+    # Direct rules na cadeia FORWARD: bloqueiam o que a VM tenta ROTEAR pra LAN.
+    # As rich rules acima so pegam trafego pro host; o trafego encaminhado pra
+    # outros hosts da rede local passa pela cadeia FORWARD, entao precisamos de
+    # regras diretas nela. Sem isso a VM ainda consegue escanear a rede local.
+    firewall-cmd --direct --add-rule ipv4 filter FORWARD 0 -i "${TAP_DEV}" -d "${GUEST_NETWORK}" -j ACCEPT 2>/dev/null || true
+    firewall-cmd --direct --add-rule ipv4 filter FORWARD 1 -i "${TAP_DEV}" -d 10.0.0.0/8 -j DROP 2>/dev/null || true
+    firewall-cmd --direct --add-rule ipv4 filter FORWARD 1 -i "${TAP_DEV}" -d 172.16.0.0/12 -j DROP 2>/dev/null || true
+    firewall-cmd --direct --add-rule ipv4 filter FORWARD 1 -i "${TAP_DEV}" -d 192.168.0.0/16 -j DROP 2>/dev/null || true
 
     echo "      Regras aplicadas (runtime, nao persistente)"
     echo "      Para persistir: adicione --permanent aos comandos"

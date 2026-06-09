@@ -166,7 +166,10 @@ fi
 echo ""
 sync
 sleep 1
-poweroff -f
+# reboot -f (nao poweroff): com reboot=k nos boot_args o kernel faz um reset
+# via controlador de teclado que o Firecracker intercepta e encerra na hora.
+# poweroff -f deixaria o Firecracker travado ate o timeout.
+reboot -f
 SCRIPT
     chmod +x /run-function.sh
 '

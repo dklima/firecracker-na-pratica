@@ -12,25 +12,26 @@ Scripts e codigo do artigo **[Redes no Firecracker: configurando TAP, NAT e inte
 
 ## Aviso importante
 
-Se voce ja tem o rootfs do artigo anterior (`rootfs-python.ext4`), **voce precisa construir um novo rootfs** com suporte a rede. O rootfs antigo nao tem as dependencias necessarias (requests, ca-certificates).
+Este artigo usa um rootfs proprio, o `rootfs-network.ext4`, com `requests` e
+`ca-certificates` instalados. O `build-rootfs-network.sh` gera esse arquivo novo;
+o `rootfs-python.ext4` do artigo anterior fica intacto e nao e usado aqui.
 
 ```bash
-# Remove o rootfs antigo (se existir)
-rm -f rootfs-python.ext4
-
-# Constroi o novo rootfs com suporte a rede
+# Constroi o rootfs com suporte a rede
 sudo ./build-rootfs-network.sh
 ```
+
+Nao reuse o `rootfs-python.ext4` do artigo anterior: ele nao tem as dependencias
+de rede e a funcao falha com `ModuleNotFoundError`.
 
 ## Requisitos
 
 - Firecracker e kernel do artigo anterior
 - Docker ou Podman
-- Python 3.8+ com as bibliotecas:
+- Python 3.8+ (o `nano-lambda-network.py` usa so a biblioteca padrao, sem `pip install`)
 
-```bash
-pip install requests requests-unixsocket
-```
+As dependencias de rede do `handler.py` (`requests`, `ca-certificates`) sao
+instaladas dentro do rootfs pelo `build-rootfs-network.sh` via apk, nao no host.
 
 ## Uso rapido
 
