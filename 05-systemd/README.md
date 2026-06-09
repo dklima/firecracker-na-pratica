@@ -2,41 +2,52 @@
 
 Arquivos para o artigo **[Firecracker em produção: systemd, restart automático e a diferença entre demo e serviço de verdade](https://fogonacaixadagua.com.br/2025/12/firecracker-em-producao-systemd-restart-automatico-e-a-diferenca-entre-demo-e-servico-de-verdade/)**
 
-Scripts e unit files para rodar microVMs Firecracker como servicos systemd.
+Scripts e unit files para rodar microVMs Firecracker como serviços systemd.
 
 ## Arquivos
 
 ```
 05-systemd/
-├── build-rootfs-service.sh        # Constroi o rootfs de servico persistente
+├── build-rootfs-service.sh        # Constrói o rootfs de serviço persistente
 ├── firecracker-network-setup.sh   # Setup/teardown de rede (TAP, NAT)
 ├── firecracker-vm-start.sh        # Inicia Firecracker e configura via API
-├── nano-lambda.service            # Unit file basica
-├── nano-lambda-hardened.service   # Unit file com hardening de seguranca
-├── firecracker@.service           # Template para multiplas VMs
+├── nano-lambda.service            # Unit file básica
+├── nano-lambda-hardened.service   # Unit file com hardening de segurança
+├── firecracker@.service           # Template para múltiplas VMs
 ├── examples/
-│   ├── web.conf                   # Configuracao de exemplo (VM web)
-│   └── worker.conf                # Configuracao de exemplo (VM worker)
+│   ├── web.conf                   # Configuração de exemplo (VM web)
+│   └── worker.conf                # Configuração de exemplo (VM worker)
 └── README.md
 ```
 
-## Pre-requisitos
+## Pré-requisitos
 
 - Firecracker instalado (`/usr/local/bin/firecracker`)
 - Kernel Linux (`/var/lib/firecracker/vmlinux.bin`)
-- Rootfs com rede configurada (`/var/lib/firecracker/rootfs-network.ext4`)
+- Docker ou Podman (para construir o rootfs)
 - curl instalado (para chamadas API)
 
-O rootfs precisa ter:
-- IP estatico configurado (172.16.0.2/24)
-- Gateway configurado (172.16.0.1)
-- DNS configurado (/etc/resolv.conf)
+O rootfs de serviço (`rootfs-service.ext4`) é construído pelo `build-rootfs-service.sh`.
+Diferente do rootfs do artigo 03 (que roda a função uma vez e dá reboot), este sobe a rede
+e fica vivo, pra funcionar como serviço de verdade sob o systemd. Dentro da VM ele configura:
+- IP estático (172.16.0.2/24)
+- Gateway (172.16.0.1)
+- DNS (/etc/resolv.conf)
 
-Veja o [artigo 03](https://fogonacaixadagua.com.br/2025/12/redes-no-firecracker-configurando-tap-nat-e-internet-para-seu-nano-lambda/) da serie para detalhes sobre configuracao de rede no rootfs.
+Veja o [artigo 03](https://fogonacaixadagua.com.br/2025/12/redes-no-firecracker-configurando-tap-nat-e-internet-para-seu-nano-lambda/) da série para detalhes sobre configuração de rede no rootfs.
 
-## Instalacao
+## Instalação
 
 ```bash
+# Constrói o rootfs de serviço (gera rootfs-service.ext4)
+sudo ./build-rootfs-service.sh
+
+# Coloca binário, kernel e rootfs nos lugares certos
+sudo mkdir -p /var/lib/firecracker
+sudo cp ./firecracker /usr/local/bin/firecracker
+sudo cp ./vmlinux.bin /var/lib/firecracker/vmlinux.bin
+sudo cp ./rootfs-service.ext4 /var/lib/firecracker/rootfs-service.ext4
+
 # Copia os scripts
 sudo cp firecracker-network-setup.sh /usr/local/bin/
 sudo cp firecracker-vm-start.sh /usr/local/bin/
@@ -45,14 +56,14 @@ sudo chmod +x /usr/local/bin/firecracker-vm-start.sh
 
 # Copia a unit file (escolha uma)
 sudo cp nano-lambda.service /etc/systemd/system/
-# ou para versao com hardening:
+# ou para versão com hardening:
 sudo cp nano-lambda-hardened.service /etc/systemd/system/nano-lambda.service
 
 # Recarrega o systemd
 sudo systemctl daemon-reload
 ```
 
-## Uso basico
+## Uso básico
 
 ```bash
 # Inicia a microVM
@@ -61,32 +72,32 @@ sudo systemctl start nano-lambda
 # Verifica status
 sudo systemctl status nano-lambda
 
-# Ve os logs em tempo real
+# Vê os logs em tempo real
 sudo journalctl -u nano-lambda -f
 
 # Para a microVM
 sudo systemctl stop nano-lambda
 
-# Habilita inicio automatico no boot
+# Habilita início automático no boot
 sudo systemctl enable nano-lambda
 ```
 
-## Multiplas VMs com templates
+## Múltiplas VMs com templates
 
-Para rodar multiplas VMs, use o template `firecracker@.service`:
+Para rodar múltiplas VMs, use o template `firecracker@.service`:
 
 ```bash
 # Instala o template
 sudo cp firecracker@.service /etc/systemd/system/
 sudo mkdir -p /etc/firecracker
 
-# Copia configuracoes
+# Copia configurações
 sudo cp examples/web.conf /etc/firecracker/
 sudo cp examples/worker.conf /etc/firecracker/
 
 # Cria rootfs para cada VM
-sudo cp /var/lib/firecracker/rootfs-network.ext4 /var/lib/firecracker/rootfs-web.ext4
-sudo cp /var/lib/firecracker/rootfs-network.ext4 /var/lib/firecracker/rootfs-worker.ext4
+sudo cp /var/lib/firecracker/rootfs-service.ext4 /var/lib/firecracker/rootfs-web.ext4
+sudo cp /var/lib/firecracker/rootfs-service.ext4 /var/lib/firecracker/rootfs-worker.ext4
 
 # Recarrega systemd
 sudo systemctl daemon-reload
@@ -98,16 +109,21 @@ sudo systemctl start firecracker@worker
 # Status de todas
 sudo systemctl status 'firecracker@*'
 
-# Logs de uma VM especifica
+# Logs de uma VM específica
 sudo journalctl -u firecracker@web -f
 ```
 
-**Importante**: Cada VM precisa de sua propria interface TAP com IP diferente. Edite os arquivos `.conf` para configurar:
+**Importante**: Cada VM precisa de sua própria interface TAP com IP diferente. Edite os arquivos `.conf` para configurar:
 
 | VM | TAP_DEV | TAP_IP | GUEST_MAC |
 |----|---------|--------|-----------|
 | web | tap0 | 172.16.0.1 | AA:FC:00:00:00:01 |
 | worker | tap1 | 172.16.1.1 | AA:FC:00:00:00:02 |
+
+**Cuidado com o IP de dentro da VM**: o `rootfs-service.ext4` fixa o IP do guest em
+`172.16.0.2`. Uma VM numa subnet diferente (como o `worker` em `172.16.1.0/24`) sobe e fica
+no ar, mas sem internet, porque o IP não bate com a subnet da TAP. Pra cada subnet, ajuste o
+`172.16.0.2` no `vm-service.sh` (dentro do `build-rootfs-service.sh`) antes de construir.
 
 ## Scripts individuais
 
@@ -126,31 +142,31 @@ sudo ./firecracker-network-setup.sh down
 sudo ./firecracker-network-setup.sh status
 ```
 
-Variaveis de ambiente:
+Variáveis de ambiente:
 - `TAP_DEV` - Nome da interface (default: tap0)
 - `TAP_IP` - IP do host (default: 172.16.0.1)
-- `TAP_CIDR` - Mascara CIDR (default: 24)
+- `TAP_CIDR` - Máscara CIDR (default: 24)
 
 ### firecracker-vm-start.sh
 
 ```bash
-# Inicia uma VM (requer rede ja configurada)
+# Inicia uma VM (requer rede já configurada)
 sudo VM_NAME=teste ROOTFS_PATH=/path/to/rootfs.ext4 ./firecracker-vm-start.sh
 ```
 
-Variaveis de ambiente:
+Variáveis de ambiente:
 - `VM_NAME` - Nome da VM (default: default)
 - `SOCKET_PATH` - Caminho do socket API
 - `KERNEL_PATH` - Caminho do kernel
 - `ROOTFS_PATH` - Caminho do rootfs
-- `VCPU_COUNT` - Numero de vCPUs (default: 1)
-- `MEM_SIZE_MIB` - Memoria em MiB (default: 256)
+- `VCPU_COUNT` - Número de vCPUs (default: 1)
+- `MEM_SIZE_MIB` - Memória em MiB (default: 256)
 - `TAP_DEV` - Interface TAP (default: tap0)
 - `GUEST_MAC` - MAC address do guest
 
 ## Troubleshooting
 
-### Servico nao inicia
+### Serviço não inicia
 
 ```bash
 # Ver logs detalhados
@@ -160,7 +176,7 @@ sudo journalctl -u nano-lambda -b --no-pager
 sudo systemd-analyze verify /etc/systemd/system/nano-lambda.service
 ```
 
-### Rede nao funciona
+### Rede não funciona
 
 ```bash
 # Verificar interface TAP
@@ -176,13 +192,13 @@ sudo firewall-cmd --query-masquerade
 sudo iptables -t nat -L -n | grep MASQUERADE
 ```
 
-### Firecracker nao encontra socket
+### Firecracker não encontra socket
 
 ```bash
-# Verificar diretorio
+# Verificar diretório
 ls -la /run/firecracker/
 
-# Verificar permissoes
+# Verificar permissões
 stat /run/firecracker/
 ```
 
@@ -199,21 +215,25 @@ sudo systemctl start nano-lambda
 
 ## Hardening
 
-A versao `nano-lambda-hardened.service` inclui:
+A versão `nano-lambda-hardened.service` inclui:
 
+- `ExecStartPre=+...` / `ExecStopPost=+...` - Setup de rede com privilégio total (fora do sandbox)
 - `ProtectSystem=strict` - Filesystem do host read-only
 - `ProtectHome=yes` - Sem acesso ao /home
 - `PrivateTmp=yes` - /tmp isolado
-- `NoNewPrivileges=yes` - Previne escalacao de privilegios
-- `PrivateDevices=yes` - Acesso restrito a dispositivos
-- `DeviceAllow=/dev/kvm rw` - Whitelist de dispositivos
-- `CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW` - Capabilities minimas
-- `MemoryMax=512M` - Limite de memoria
+- `NoNewPrivileges=yes` - Previne escalação de privilégios
+- `DevicePolicy=closed` + `DeviceAllow` - Nega tudo, libera só /dev/kvm e /dev/net/tun
+- `CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW` - Capabilities mínimas
+- `MemoryMax=512M` - Limite de memória
 - `TasksMax=10` - Limite de processos
+
+Não use `PrivateDevices=yes` aqui: ele esconde `/dev/net/tun` e o Firecracker não consegue
+anexar a TAP (o serviço falha com `open: No such file or directory`). Por isso a unit usa
+`DevicePolicy=closed` + `DeviceAllow`, que restringe via cgroup mas mantém os devices visíveis.
 
 ## Links
 
-- [Artigo 05: Daemonizando com systemd](https://fogonacaixadagua.com.br/)
+- [Artigo 05: Daemonizando com systemd](https://fogonacaixadagua.com.br/2025/12/firecracker-em-producao-systemd-restart-automatico-e-a-diferenca-entre-demo-e-servico-de-verdade/)
 - [Artigo 03: Redes no Firecracker](https://fogonacaixadagua.com.br/2025/12/redes-no-firecracker-configurando-tap-nat-e-internet-para-seu-nano-lambda/)
-- [Documentacao Firecracker](https://github.com/firecracker-microvm/firecracker)
-- [Documentacao systemd](https://www.freedesktop.org/software/systemd/man/)
+- [Documentação Firecracker](https://github.com/firecracker-microvm/firecracker)
+- [Documentação systemd](https://www.freedesktop.org/software/systemd/man/)
