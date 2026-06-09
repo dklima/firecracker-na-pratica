@@ -8,6 +8,7 @@ Scripts e unit files para rodar microVMs Firecracker como servicos systemd.
 
 ```
 05-systemd/
+├── build-rootfs-service.sh        # Constroi o rootfs de servico persistente
 ├── firecracker-network-setup.sh   # Setup/teardown de rede (TAP, NAT)
 ├── firecracker-vm-start.sh        # Inicia Firecracker e configura via API
 ├── nano-lambda.service            # Unit file basica

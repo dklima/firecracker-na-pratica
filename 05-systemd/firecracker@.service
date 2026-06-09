@@ -4,6 +4,10 @@ Documentation=https://github.com/firecracker-microvm/firecracker
 After=network.target
 Wants=network.target
 
+# Limite de restarts: no maximo 3 em 60s (StartLimit* vao na secao [Unit]).
+StartLimitBurst=3
+StartLimitIntervalSec=60
+
 [Service]
 Type=simple
 
@@ -35,8 +39,6 @@ ExecStopPost=/usr/local/bin/firecracker-network-setup.sh down
 # Politica de restart
 Restart=on-failure
 RestartSec=5
-StartLimitBurst=3
-StartLimitIntervalSec=60
 
 # Timeout
 TimeoutStartSec=30

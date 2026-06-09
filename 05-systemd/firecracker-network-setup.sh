@@ -17,6 +17,9 @@ TAP_DEV="${TAP_DEV:-tap0}"
 TAP_IP="${TAP_IP:-172.16.0.1}"
 TAP_CIDR="${TAP_CIDR:-24}"
 
+# Subnet da VM derivada do TAP_IP (172.16.0.1 -> 172.16.0.0/24)
+GUEST_NETWORK="${TAP_IP%.*}.0/${TAP_CIDR}"
+
 ACTION="${1:-up}"
 
 # Cores para output (desabilita se nao for terminal)
@@ -59,15 +62,13 @@ setup_network() {
     # Verifica se ja existe
     if ip link show "$TAP_DEV" &>/dev/null; then
         log_warn "Interface $TAP_DEV ja existe, pulando criacao"
-        return 0
+    else
+        # Cria interface TAP
+        ip tuntap add dev "$TAP_DEV" mode tap
+        ip addr add "${TAP_IP}/${TAP_CIDR}" dev "$TAP_DEV"
+        ip link set "$TAP_DEV" up
+        log_info "Interface $TAP_DEV criada"
     fi
-
-    # Cria interface TAP
-    ip tuntap add dev "$TAP_DEV" mode tap
-    ip addr add "${TAP_IP}/${TAP_CIDR}" dev "$TAP_DEV"
-    ip link set "$TAP_DEV" up
-
-    log_info "Interface $TAP_DEV criada"
 
     # Habilita IP forwarding
     sysctl -w net.ipv4.ip_forward=1 > /dev/null
@@ -92,12 +93,22 @@ setup_firewalld() {
     # Habilita masquerading (NAT)
     firewall-cmd --add-masquerade 2>/dev/null || true
 
-    # Bloqueia acesso a redes privadas (seguranca)
-    # VM pode acessar internet, mas nao a rede local do host
-    firewall-cmd --zone=trusted --add-rich-rule="rule family=ipv4 source address=172.16.0.0/24 destination address=10.0.0.0/8 drop" 2>/dev/null || true
-    firewall-cmd --zone=trusted --add-rich-rule="rule family=ipv4 source address=172.16.0.0/24 destination address=192.168.0.0/16 drop" 2>/dev/null || true
+    # Isolamento - parte 1: rich rules (cadeia INPUT, trafego destinado ao host)
+    firewall-cmd --zone=trusted --remove-rich-rule="rule family=ipv4 source address=${GUEST_NETWORK} destination address=10.0.0.0/8 drop" 2>/dev/null || true
+    firewall-cmd --zone=trusted --remove-rich-rule="rule family=ipv4 source address=${GUEST_NETWORK} destination address=192.168.0.0/16 drop" 2>/dev/null || true
+    firewall-cmd --zone=trusted --add-rich-rule="rule family=ipv4 source address=${GUEST_NETWORK} destination address=10.0.0.0/8 drop" 2>/dev/null || true
+    firewall-cmd --zone=trusted --add-rich-rule="rule family=ipv4 source address=${GUEST_NETWORK} destination address=192.168.0.0/16 drop" 2>/dev/null || true
 
-    log_info "firewalld configurado"
+    # Isolamento - parte 2: direct rules na cadeia FORWARD (trafego roteado pra LAN).
+    # As rich rules acima so pegam trafego pro proprio host. O trafego que a VM
+    # tenta encaminhar pra outros hosts da rede local passa pela cadeia FORWARD,
+    # entao sem estas regras a VM ainda consegue escanear a rede local.
+    firewall-cmd --direct --add-rule ipv4 filter FORWARD 0 -i "$TAP_DEV" -d "$GUEST_NETWORK" -j ACCEPT 2>/dev/null || true
+    firewall-cmd --direct --add-rule ipv4 filter FORWARD 1 -i "$TAP_DEV" -d 10.0.0.0/8 -j DROP 2>/dev/null || true
+    firewall-cmd --direct --add-rule ipv4 filter FORWARD 1 -i "$TAP_DEV" -d 172.16.0.0/12 -j DROP 2>/dev/null || true
+    firewall-cmd --direct --add-rule ipv4 filter FORWARD 1 -i "$TAP_DEV" -d 192.168.0.0/16 -j DROP 2>/dev/null || true
+
+    log_info "firewalld configurado (NAT + isolamento INPUT/FORWARD)"
 }
 
 setup_iptables() {
@@ -125,19 +136,37 @@ setup_iptables() {
     iptables -C FORWARD -i "$DEFAULT_IFACE" -o "$TAP_DEV" -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null || \
         iptables -A FORWARD -i "$DEFAULT_IFACE" -o "$TAP_DEV" -m state --state RELATED,ESTABLISHED -j ACCEPT
 
-    # Bloqueia acesso a redes privadas (seguranca)
-    # VM pode acessar internet, mas nao a rede local do host
+    # Isolamento: a VM acessa a internet, mas nao a rede local do host.
+    # Permite a propria subnet da VM antes dos blocos (regra entra no topo).
+    iptables -C FORWARD -i "$TAP_DEV" -d "$GUEST_NETWORK" -j ACCEPT 2>/dev/null || \
+        iptables -I FORWARD -i "$TAP_DEV" -d "$GUEST_NETWORK" -j ACCEPT
+
     iptables -C FORWARD -i "$TAP_DEV" -d 10.0.0.0/8 -j DROP 2>/dev/null || \
-        iptables -I FORWARD -i "$TAP_DEV" -d 10.0.0.0/8 -j DROP
+        iptables -I FORWARD 2 -i "$TAP_DEV" -d 10.0.0.0/8 -j DROP
+
+    iptables -C FORWARD -i "$TAP_DEV" -d 172.16.0.0/12 -j DROP 2>/dev/null || \
+        iptables -I FORWARD 3 -i "$TAP_DEV" -d 172.16.0.0/12 -j DROP
 
     iptables -C FORWARD -i "$TAP_DEV" -d 192.168.0.0/16 -j DROP 2>/dev/null || \
-        iptables -I FORWARD -i "$TAP_DEV" -d 192.168.0.0/16 -j DROP
+        iptables -I FORWARD 4 -i "$TAP_DEV" -d 192.168.0.0/16 -j DROP
 
-    log_info "iptables configurado"
+    log_info "iptables configurado (NAT + isolamento FORWARD)"
 }
 
 teardown_network() {
     log_info "Removendo configuracao de rede..."
+
+    # Remove as regras de firewall desta TAP (mantem masquerading, que pode
+    # estar sendo usado por outras VMs).
+    if command -v firewall-cmd &>/dev/null && systemctl is-active firewalld &>/dev/null; then
+        firewall-cmd --zone=trusted --remove-interface="$TAP_DEV" 2>/dev/null || true
+        firewall-cmd --zone=trusted --remove-rich-rule="rule family=ipv4 source address=${GUEST_NETWORK} destination address=10.0.0.0/8 drop" 2>/dev/null || true
+        firewall-cmd --zone=trusted --remove-rich-rule="rule family=ipv4 source address=${GUEST_NETWORK} destination address=192.168.0.0/16 drop" 2>/dev/null || true
+        firewall-cmd --direct --remove-rule ipv4 filter FORWARD 0 -i "$TAP_DEV" -d "$GUEST_NETWORK" -j ACCEPT 2>/dev/null || true
+        firewall-cmd --direct --remove-rule ipv4 filter FORWARD 1 -i "$TAP_DEV" -d 10.0.0.0/8 -j DROP 2>/dev/null || true
+        firewall-cmd --direct --remove-rule ipv4 filter FORWARD 1 -i "$TAP_DEV" -d 172.16.0.0/12 -j DROP 2>/dev/null || true
+        firewall-cmd --direct --remove-rule ipv4 filter FORWARD 1 -i "$TAP_DEV" -d 192.168.0.0/16 -j DROP 2>/dev/null || true
+    fi
 
     if ip link show "$TAP_DEV" &>/dev/null; then
         ip link set "$TAP_DEV" down
@@ -146,9 +175,6 @@ teardown_network() {
     else
         log_warn "Interface $TAP_DEV nao existe"
     fi
-
-    # Nota: nao removemos regras de firewall automaticamente
-    # pois podem estar sendo usadas por outras VMs
 
     log_info "Limpeza concluida"
 }

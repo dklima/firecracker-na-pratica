@@ -4,6 +4,10 @@ Documentation=https://github.com/firecracker-microvm/firecracker
 After=network.target
 Wants=network.target
 
+# Limite de restarts: no maximo 3 em 60s (StartLimit* vao na secao [Unit]).
+StartLimitBurst=3
+StartLimitIntervalSec=60
+
 [Service]
 Type=simple
 
@@ -11,7 +15,7 @@ Type=simple
 Environment=VM_NAME=nano-lambda
 Environment=SOCKET_PATH=/run/firecracker/nano-lambda.socket
 Environment=KERNEL_PATH=/var/lib/firecracker/vmlinux.bin
-Environment=ROOTFS_PATH=/var/lib/firecracker/rootfs-network.ext4
+Environment=ROOTFS_PATH=/var/lib/firecracker/rootfs-service.ext4
 Environment=VCPU_COUNT=1
 Environment=MEM_SIZE_MIB=256
 Environment=TAP_DEV=tap0
@@ -22,20 +26,16 @@ Environment=GUEST_MAC=AA:FC:00:00:00:01
 RuntimeDirectory=firecracker
 RuntimeDirectoryMode=0755
 
-# Antes de iniciar: configura rede
-ExecStartPre=/usr/local/bin/firecracker-network-setup.sh up
-
-# Comando principal
+# Setup/teardown de rede rodam com privilegio total (prefixo +), fora do
+# sandbox. Criar TAP, escrever sysctl e mexer no firewall precisam de root
+# pleno; o sandbox abaixo vale so para o processo principal (o Firecracker).
+ExecStartPre=+/usr/local/bin/firecracker-network-setup.sh up
 ExecStart=/usr/local/bin/firecracker-vm-start.sh
-
-# Depois de parar: limpa rede
-ExecStopPost=/usr/local/bin/firecracker-network-setup.sh down
+ExecStopPost=+/usr/local/bin/firecracker-network-setup.sh down
 
 # Politica de restart
 Restart=on-failure
 RestartSec=5
-StartLimitBurst=3
-StartLimitIntervalSec=60
 
 # Timeout
 TimeoutStartSec=30
@@ -63,13 +63,15 @@ ReadWritePaths=/var/lib/firecracker /run/firecracker
 # Previne escalacao de privilegios via setuid/setgid
 NoNewPrivileges=yes
 
-# Isola acesso a dispositivos - so permite os necessarios
-PrivateDevices=yes
+# Restringe dispositivos: nega tudo, libera so /dev/kvm e /dev/net/tun.
+# NAO usamos PrivateDevices=yes aqui: ele esconde /dev/net/tun, e o Firecracker
+# precisa desse device pra anexar a interface TAP da VM.
+DevicePolicy=closed
 DeviceAllow=/dev/kvm rw
 DeviceAllow=/dev/net/tun rw
 
 # Capabilities minimas
-# CAP_NET_ADMIN: necessario para criar e configurar interface TAP
+# CAP_NET_ADMIN: necessario para anexar a interface TAP
 # CAP_NET_RAW: necessario para algumas operacoes de rede
 CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW
 AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW
@@ -80,13 +82,9 @@ MemoryMax=512M
 TasksMax=10
 
 # Protecoes adicionais do kernel
-ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectKernelLogs=yes
 ProtectControlGroups=yes
-
-# Restricao de chamadas de sistema (opcional, pode causar problemas)
-# SystemCallFilter=@system-service
 
 [Install]
 WantedBy=multi-user.target
