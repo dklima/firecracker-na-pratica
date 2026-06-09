@@ -31,12 +31,13 @@ curl -L -o rootfs.ext4 \
   "https://github.com/dklima/firecracker-na-pratica/releases/download/v1.0.0/rootfs.ext4"
 
 # 3. Inicia o Firecracker (terminal 1)
-rm -f /tmp/firecracker.socket
+sudo rm -f /tmp/firecracker.socket
 sudo ./firecracker --api-sock /tmp/firecracker.socket
 
 # 4. Configura e inicia a VM (terminal 2)
+# O socket pertence ao root, entao o curl tambem vai com sudo
 # Kernel
-curl --unix-socket /tmp/firecracker.socket -X PUT \
+sudo curl --unix-socket /tmp/firecracker.socket -X PUT \
   "http://localhost/boot-source" \
   -H "Content-Type: application/json" \
   -d '{
@@ -45,7 +46,7 @@ curl --unix-socket /tmp/firecracker.socket -X PUT \
   }'
 
 # Rootfs
-curl --unix-socket /tmp/firecracker.socket -X PUT \
+sudo curl --unix-socket /tmp/firecracker.socket -X PUT \
   "http://localhost/drives/rootfs" \
   -H "Content-Type: application/json" \
   -d '{
@@ -56,7 +57,7 @@ curl --unix-socket /tmp/firecracker.socket -X PUT \
   }'
 
 # Recursos
-curl --unix-socket /tmp/firecracker.socket -X PUT \
+sudo curl --unix-socket /tmp/firecracker.socket -X PUT \
   "http://localhost/machine-config" \
   -H "Content-Type: application/json" \
   -d '{
@@ -65,7 +66,7 @@ curl --unix-socket /tmp/firecracker.socket -X PUT \
   }'
 
 # Inicia!
-curl --unix-socket /tmp/firecracker.socket -X PUT \
+sudo curl --unix-socket /tmp/firecracker.socket -X PUT \
   "http://localhost/actions" \
   -H "Content-Type: application/json" \
   -d '{"action_type": "InstanceStart"}'
